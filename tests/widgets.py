@@ -1,13 +1,12 @@
 from __future__ import unicode_literals
 
 from unittest import TestCase
-from wtforms.widgets import html_params, Input
 from wtforms.widgets import *
 from wtforms.widgets import html5
 
 
 class DummyField(object):
-    def __init__(self, data, name='f', label='', id='', type='TextField'):
+    def __init__(self, data, name='f', label='', id='', type='StringField'):
         self.data = data
         self.name = name
         self.label = label
@@ -20,6 +19,14 @@ class DummyField(object):
     __call__ = lambda x, **k: x.data
     __iter__ = lambda x: iter(x.data)
     iter_choices = lambda x: iter(x.data)
+
+
+class EscapeHtmlTest(TestCase):
+    def test(self):
+        self.assertEqual(core.escape_html('<i class="bar">foo</i>'), '&lt;i class=&quot;bar&quot;&gt;foo&lt;/i&gt;')
+        self.assertEqual(core.escape_html('<i class="bar">foo</i>', quote=False), '&lt;i class="bar"&gt;foo&lt;/i&gt;')
+        self.assertEqual(core.escape_html(HTMLString('<i class="bar">foo</i>')), '<i class="bar">foo</i>')
+        self.assertEqual(core.escape_html(HTMLString('<i class="bar">foo</i>'), quote=False), '<i class="bar">foo</i>')
 
 
 class HTMLParamsTest(TestCase):
@@ -111,6 +118,10 @@ class BasicWidgetsTest(TestCase):
         f = DummyField('hi<>bye')
         self.assertEqual(TextArea()(f), '<textarea id="" name="f">hi&lt;&gt;bye</textarea>')
 
+    def test_file(self):
+        self.assertEqual(FileInput()(self.field), '<input id="id" name="bar" type="file">')
+        self.assertEqual(FileInput(multiple=True)(self.field), '<input id="id" multiple name="bar" type="file">')
+
 
 class SelectTest(TestCase):
     field = DummyField([('foo', 'lfoo', True), ('bar', 'lbar', False)])
@@ -134,6 +145,14 @@ class SelectTest(TestCase):
         self.assertEqual(
             Select.render_option(True, 'foo', True),
             '<option selected value="True">foo</option>'
+        )
+        self.assertEqual(
+            Select.render_option('bar', '<i class="bar"></i>foo', False),
+            '<option value="bar">&lt;i class="bar"&gt;&lt;/i&gt;foo</option>'
+        )
+        self.assertEqual(
+            Select.render_option('bar', HTMLString('<i class="bar"></i>foo'), False),
+            '<option value="bar"><i class="bar"></i>foo</option>'
         )
 
 

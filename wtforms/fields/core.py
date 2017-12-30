@@ -4,6 +4,8 @@ import datetime
 import decimal
 import itertools
 
+from copy import copy
+
 from wtforms import widgets
 from wtforms.compat import text_type, izip
 from wtforms.i18n import DummyTranslations
@@ -14,7 +16,7 @@ from wtforms.utils import unset_value
 __all__ = (
     'BooleanField', 'DecimalField', 'DateField', 'DateTimeField', 'FieldList',
     'FloatField', 'FormField', 'IntegerField', 'RadioField', 'SelectField',
-    'SelectMultipleField', 'StringField',
+    'SelectMultipleField', 'StringField', 'TimeField',
 )
 
 
@@ -278,12 +280,13 @@ class Field(object):
         except ValueError as e:
             self.process_errors.append(e.args[0])
 
-        if formdata:
+        if formdata is not None:
+            if self.name in formdata:
+                self.raw_data = formdata.getlist(self.name)
+            else:
+                self.raw_data = []
+
             try:
-                if self.name in formdata:
-                    self.raw_data = formdata.getlist(self.name)
-                else:
-                    self.raw_data = []
                 self.process_formdata(self.raw_data)
             except ValueError as e:
                 self.process_errors.append(e.args[0])
@@ -445,7 +448,7 @@ class SelectField(SelectFieldBase):
     def __init__(self, label=None, validators=None, coerce=text_type, choices=None, **kwargs):
         super(SelectField, self).__init__(label, validators, **kwargs)
         self.coerce = coerce
-        self.choices = choices
+        self.choices = copy(choices)
 
     def iter_choices(self):
         for value, label in self.choices:
@@ -759,6 +762,23 @@ class DateField(DateTimeField):
                 raise ValueError(self.gettext('Not a valid date value'))
 
 
+class TimeField(DateTimeField):
+    """
+    Same as DateTimeField, except stores a `time`.
+    """
+    def __init__(self, label=None, validators=None, format='%H:%M', **kwargs):
+        super(TimeField, self).__init__(label, validators, format, **kwargs)
+
+    def process_formdata(self, valuelist):
+        if valuelist:
+            time_str = ' '.join(valuelist)
+            try:
+                self.data = datetime.datetime.strptime(time_str, self.format).time()
+            except ValueError:
+                self.data = None
+                raise ValueError(self.gettext('Not a valid time value'))
+
+
 class FormField(Field):
     """
     Encapsulate a form as a field in another form.
@@ -835,7 +855,7 @@ class FieldList(Field):
     Encapsulate an ordered list of multiple instances of the same field type,
     keeping data as a list.
 
-    >>> authors = FieldList(StringField('Name', [validators.required()]))
+    >>> authors = FieldList(StringField('Name', [validators.DataRequired()]))
 
     :param unbound_field:
         A partially-instantiated field definition, just like that would be

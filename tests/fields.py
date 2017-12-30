@@ -13,6 +13,7 @@ from wtforms.form import Form
 from wtforms.compat import text_type
 from wtforms.utils import unset_value
 from tests.common import DummyPostData
+from wtforms.widgets import TextInput
 
 PYTHON_VERSION = sys.version_info
 
@@ -33,11 +34,11 @@ class DefaultsTest(TestCase):
         def default_callable():
             return expected
 
-        test_value = TextField(default=expected).bind(Form(), 'a')
+        test_value = StringField(default=expected).bind(Form(), 'a')
         test_value.process(None)
         self.assertEqual(test_value.data, expected)
 
-        test_callable = TextField(default=default_callable).bind(Form(), 'a')
+        test_callable = StringField(default=default_callable).bind(Form(), 'a')
         test_callable.process(None)
         self.assertEqual(test_callable.data, expected)
 
@@ -52,7 +53,7 @@ class LabelTest(TestCase):
         self.assertEqual(label.__html__(), expected)
         self.assertEqual(label().__html__(), expected)
         self.assertEqual(label('hello'), """<label for="test">hello</label>""")
-        self.assertEqual(TextField('hi').bind(Form(), 'a').label.text, 'hi')
+        self.assertEqual(StringField('hi').bind(Form(), 'a').label.text, 'hi')
         if PYTHON_VERSION < (3,):
             self.assertEqual(repr(label), "Label(u'test', u'Caption')")
         else:
@@ -60,10 +61,10 @@ class LabelTest(TestCase):
             self.assertEqual(label.__unicode__(), expected)
 
     def test_auto_label(self):
-        t1 = TextField().bind(Form(), 'foo_bar')
+        t1 = StringField().bind(Form(), 'foo_bar')
         self.assertEqual(t1.label.text, 'Foo Bar')
 
-        t2 = TextField('').bind(Form(), 'foo_bar')
+        t2 = StringField('').bind(Form(), 'foo_bar')
         self.assertEqual(t2.label.text, '')
 
     def test_override_for(self):
@@ -74,7 +75,7 @@ class LabelTest(TestCase):
 
 class FlagsTest(TestCase):
     def setUp(self):
-        t = TextField(validators=[validators.Required()]).bind(Form(), 'a')
+        t = StringField(validators=[validators.DataRequired()]).bind(Form(), 'a')
         self.flags = t.flags
 
     def test_existing_values(self):
@@ -115,8 +116,8 @@ class UnsetValueTest(TestCase):
 
 class FiltersTest(TestCase):
     class F(Form):
-        a = TextField(default=' hello', filters=[lambda x: x.strip()])
-        b = TextField(default='42', filters=[int, lambda x: -x])
+        a = StringField(default=' hello', filters=[lambda x: x.strip()])
+        b = StringField(default='42', filters=[int, lambda x: -x])
 
     def test_working(self):
         form = self.F()
@@ -134,7 +135,8 @@ class FiltersTest(TestCase):
 
 class FieldTest(TestCase):
     class F(Form):
-        a = TextField(default='hello', render_kw={'readonly': True, 'foo': u'bar'})
+        a = StringField(default='hello', render_kw={'readonly': True, 'foo': u'bar'})
+        b = StringField(validators=[validators.InputRequired()])
 
     def setUp(self):
         self.field = self.F().a
@@ -142,10 +144,10 @@ class FieldTest(TestCase):
     def test_unbound_field(self):
         unbound = self.F.a
         assert unbound.creation_counter != 0
-        assert unbound.field_class is TextField
+        assert unbound.field_class is StringField
         self.assertEqual(unbound.args, ())
         self.assertEqual(unbound.kwargs, {'default': 'hello', 'render_kw': {'readonly': True, 'foo': u'bar'}})
-        assert repr(unbound).startswith('<UnboundField(TextField')
+        assert repr(unbound).startswith('<UnboundField(StringField')
 
     def test_htmlstring(self):
         self.assertTrue(isinstance(self.field.__html__(), widgets.HTMLString))
@@ -168,11 +170,11 @@ class FieldTest(TestCase):
 
         # Can we pass in meta via _meta?
         form_meta = meta.DefaultMeta()
-        field = TextField(_name='Foo', _form=None, _meta=form_meta)
+        field = StringField(_name='Foo', _form=None, _meta=form_meta)
         assert field.meta is form_meta
 
         # Do we fail if both _meta and _form are None?
-        self.assertRaises(TypeError, TextField, _name='foo', _form=None)
+        self.assertRaises(TypeError, StringField, _name='foo', _form=None)
 
     def test_render_kw(self):
         form = self.F()
@@ -183,8 +185,32 @@ class FieldTest(TestCase):
             u'<input foo="baz" id="a" name="a" other="hello" type="text" value="hello">'
         )
 
+    def test_select_field_copies_choices(self):
+        class F(Form):
+            items = SelectField(choices=[])
 
-class PrePostTestField(TextField):
+            def __init__(self, *args, **kwargs):
+                super(F, self).__init__(*args, **kwargs)
+
+            def add_choice(self, choice):
+                self.items.choices.append((choice, choice))
+
+        f1 = F()
+        f2 = F()
+
+        f1.add_choice('a')
+        f2.add_choice('b')
+
+        self.assertEqual(f1.items.choices, [('a', 'a')])
+        self.assertEqual(f2.items.choices, [('b', 'b')])
+        self.assertTrue(f1.items.choices is not f2.items.choices)
+
+    def test_required_flag(self):
+        form = self.F()
+        self.assertEqual(form.b(), u'<input id="b" name="b" required type="text" value="">')
+
+
+class PrePostTestField(StringField):
     def pre_validate(self, form):
         if self.data == "stoponly":
             raise validators.StopValidation()
@@ -350,9 +376,9 @@ class RadioFieldTest(TestCase):
         )
 
 
-class TextFieldTest(TestCase):
+class StringFieldTest(TestCase):
     class F(Form):
-        a = TextField()
+        a = StringField()
 
     def test(self):
         form = self.F()
@@ -396,12 +422,29 @@ class PasswordFieldTest(TestCase):
 
 
 class FileFieldTest(TestCase):
-    class F(Form):
-        a = FileField(default="LE DEFAULT")
+    def test_file_field(self):
+        class F(Form):
+            file = FileField()
 
-    def test(self):
-        form = self.F()
-        self.assertEqual(form.a(), """<input id="a" name="a" type="file">""")
+        self.assertEqual(F(DummyPostData(file=['test.txt'])).file.data, 'test.txt')
+        self.assertEqual(F(DummyPostData()).file.data, None)
+        self.assertEqual(F(DummyPostData(file=['test.txt', 'multiple.txt'])).file.data, 'test.txt')
+
+    def test_multiple_file_field(self):
+        class F(Form):
+            files = MultipleFileField()
+
+        self.assertEqual(F(DummyPostData(files=['test.txt'])).files.data, ['test.txt'])
+        self.assertEqual(F(DummyPostData()).files.data, [])
+        self.assertEqual(F(DummyPostData(files=['test.txt', 'multiple.txt'])).files.data, ['test.txt', 'multiple.txt'])
+
+    def test_file_field_without_file_input(self):
+        class F(Form):
+            file = FileField(widget=TextInput())
+
+        f = F(DummyPostData(file=['test.txt']))
+        self.assertEqual(f.file.data, 'test.txt')
+        self.assertEqual(f.file(), '<input id="file" name="file" type="text">')
 
 
 class IntegerFieldTest(TestCase):
@@ -551,6 +594,27 @@ class DateFieldTest(TestCase):
         self.assertEqual(form.a.process_errors[0], 'Not a valid date value')
 
 
+class TimeFieldTest(TestCase):
+    class F(Form):
+        a = TimeField()
+        b = TimeField(format='%H:%M')
+
+    def test_basic(self):
+        d = datetime(2008, 5, 5, 4, 30, 0, 0).time()
+        # Basic test with both inputs
+        form = self.F(DummyPostData(a=['4:30'], b=['04:30']))
+        self.assertEqual(form.a.data, d)
+        self.assertEqual(form.a(), """<input id="a" name="a" type="text" value="4:30">""")
+        self.assertEqual(form.b.data, d)
+        self.assertEqual(form.b(), """<input id="b" name="b" type="text" value="04:30">""")
+        self.assertTrue(form.validate())
+
+        # Test with a missing input
+        form = self.F(DummyPostData(a=['04']))
+        self.assertFalse(form.validate())
+        self.assertEqual(form.a.errors[0], 'Not a valid time value')
+
+
 class DateTimeFieldTest(TestCase):
     class F(Form):
         a = DateTimeField()
@@ -593,8 +657,8 @@ class SubmitFieldTest(TestCase):
 class FormFieldTest(TestCase):
     def setUp(self):
         F = make_form(
-            a=TextField(validators=[validators.required()]),
-            b=TextField(),
+            a=StringField(validators=[validators.DataRequired()]),
+            b=StringField(),
         )
         self.F1 = make_form('F1', a=FormField(F))
         self.F2 = make_form('F2', a=FormField(F, separator='::'))
@@ -625,7 +689,7 @@ class FormFieldTest(TestCase):
         self.assertEqual(
             self.F1().a(),
             '''<table id="a">'''
-            '''<tr><th><label for="a-a">A</label></th><td><input id="a-a" name="a-a" type="text" value=""></td></tr>'''
+            '''<tr><th><label for="a-a">A</label></th><td><input id="a-a" name="a-a" required type="text" value=""></td></tr>'''
             '''<tr><th><label for="a-b">B</label></th><td><input id="a-b" name="a-b" type="text" value=""></td></tr>'''
             '''</table>'''
         )
@@ -638,7 +702,7 @@ class FormFieldTest(TestCase):
 
     def test_no_validators_or_filters(self):
         class A(Form):
-            a = FormField(self.F1, validators=[validators.required()])
+            a = FormField(self.F1, validators=[validators.DataRequired()])
         self.assertRaises(TypeError, A)
 
         class B(Form):
@@ -662,7 +726,7 @@ class FormFieldTest(TestCase):
 
 
 class FieldListTest(TestCase):
-    t = TextField(validators=[validators.Required()])
+    t = StringField(validators=[validators.DataRequired()])
 
     def test_form(self):
         F = make_form(a=FieldList(self.t))
@@ -797,7 +861,7 @@ class FieldListTest(TestCase):
         self.assertEqual(form.a.data, data)
 
 
-class MyCustomField(TextField):
+class MyCustomField(StringField):
     def process_data(self, data):
         if data == 'fail':
             raise ValueError('Contrived Failure')
